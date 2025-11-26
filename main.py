@@ -14,6 +14,7 @@ def rate_limited_worker():
             job = request_queue.get()
             try:
                 # 1. CALL THE LINKEDIN API
+                print(f"Processing job for: {job.get('api_url')}")
                 response = requests.get(
                     job['api_url'],
                     headers=job.get('headers', {}),
@@ -34,8 +35,9 @@ def rate_limited_worker():
                 try:
                     api_data = response.json()
                     
-                    # Navigate to the list of posts (data -> data -> list)
-                    raw_posts = api_data.get('data', {}).get('data', [])
+                    # --- FIX IS HERE ---
+                    # Based on your JSON, 'data' is a list, not a dictionary containing another data key
+                    raw_posts = api_data.get('data', [])
                     
                     lines = []
                     if isinstance(raw_posts, list):
@@ -53,9 +55,13 @@ def rate_limited_worker():
                             lines.append(line)
                         
                         # Join lines with newlines and wrap in curly braces
-                        formatted_posts_string = "{\n" + "\n".join(lines) + "\n}"
+                        if lines:
+                            formatted_posts_string = "{\n" + "\n".join(lines) + "\n}"
+                        else:
+                            formatted_posts_string = "{ No posts found in list }"
                     else:
-                        formatted_posts_string = "{ No posts found }"
+                        formatted_posts_string = "{ Unexpected data format }"
+                        print(f"Expected list for 'data', got {type(raw_posts)}")
                         
                 except Exception as parse_error:
                     print(f"Error parsing posts: {parse_error}")
@@ -63,8 +69,9 @@ def rate_limited_worker():
 
                 # 3. SEND TO WEBHOOK
                 if job.get('webhook_url'):
+                    print(f"Sending to webhook: {job['webhook_url']}")
                     try:
-                        requests.post(
+                        webhook_response = requests.post(
                             job['webhook_url'],
                             json={
                                 'status': response.status_code,
@@ -76,6 +83,7 @@ def rate_limited_worker():
                             },
                             timeout=5
                         )
+                        print(f"Webhook response: {webhook_response.status_code}")
                     except Exception as webhook_e:
                         print(f"Webhook failed: {webhook_e}")
                         pass
